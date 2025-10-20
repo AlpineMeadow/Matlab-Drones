@@ -1,0 +1,88 @@
+function data = getEBSData(info)
+
+%This function will be called by cadetDrones.m.  It will do two things.
+%The first will be to split up the original .dat files into data chunks.
+%This is because some of these .dat files are too large to load into memory
+%and then work with making movies.  These data chunks will be saved as .h5
+%files.  The second thing this function will do
+%will be to read in .h5 files and then return them as a data array.  
+
+%If the data chunk has already been written from part 1 of this function
+%then it will skip reading in the .dat file.
+
+
+if isfile(info.saveFileName)
+    %The file exists, read it in.
+    data = h5read(saveFileName, '/data');
+else
+    %Read in the data and turn it into chunks.
+
+    %Lets find the number of lines in the file.
+    [status, commandOutput] = system(['wc -l ', inFileName]);
+
+    %Matlab returns more than we want so lets pick the useful information.
+    commandOutputCell = strsplit(commandOutput);
+
+    %Now get the number of lines as an integer.
+    numLines = str2num(commandOutputCell{1});
+
+    %Generate a file ID.
+    fileID = fopen(inFileName);
+
+    %Read in the data.
+    B = fread(fileID, [numLines, 4]);
+
+    %Now lets divide the data into chunks and save the individual pieces.
+    %Each piece will contain 1e6 lines of data.
+    numOutputFiles = fix(numLines/1e6);
+    numOutputFilesStr = num2str(numOutputFiles);
+
+    %Lets tell the user how many output files will be created.
+    disp(['The data has been divided into ', numOutputFilesStr, ...
+        ' number of partitions'])
+    disp(['In order to analyze the entire data file the user will need'])
+    disp(['run cadetDrone filling in the dataPartition value starting'])
+    disp(['from 0 and going to ', numOutputFilesStr, '.  If '])
+    disp([numOutputFilesStr, ' is zero, then the user does not need'])
+    disp([' to change the dataPartition value because the file is small '])
+    disp(['enough to be completely  analyzed in one single turn through '])
+    disp(['the data.'])
+
+    %Loop through the data and save the chunks.
+    for files = 0 : numOutputFiles
+        saveFileName = ['/SS1/Drones/Data/Input/h5/', ...
+            originalInputFileName, '_', num2str(files, '%03d'), '.h5'];
+        firstIndex = 1000000*files + 1;
+        lastIndex = (files + 1)*1000000;
+
+        if files == numOutputFiles
+            lastIndex = numLines;
+        end
+
+        data = B(firstIndex : lastIndex, :);
+        h5create(saveFileName, '/data', size(data));
+        h5write(saveFileName, '/data', data);
+    end
+
+    data = datto4xN(inFileName);
+
+    % Fix the problem with (x,y) being zero-indexed
+    data(:, 1) = data(:, 1) + 1;
+    data(:, 2) = data(:, 2) + 1;
+
+    % We replace (elapsed microseconds from START OF ACQUSITION) with
+    % (elapsed microseconds from FIRST EVENT).  The FPGA can leave long
+    % (~hundreds of milliseconds) gaps before the first event is clocked
+    % in, and this plays merry hell with the FFTs later.
+    data(:, 4) = data(:, 4) - min(data(:, 4));
+
+    %Convert the time in microseconds from start of recording with time in
+    %seconds from start of recording.
+    data(:, 4) = double(data(:, 4))/1.0e6;
+
+    %Now save the data in the .h5 format.
+    h5create(saveFileName, '/data', size(data));
+    h5write(saveFileName, '/data', data);
+end  %End of the if-else clause - if isfile(saveFileName)
+
+end  %End of the function getEBSData.m

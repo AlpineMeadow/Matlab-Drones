@@ -1,0 +1,178 @@
+function makeMovieCNN(info, events, eventType)
+
+%This function is called by makeEBSMoviesCNN.m.  It will generate a set of
+%frames that will be returned to makeEBSMovies1 and it will also plot out
+%the individual frames as simple plots.
+
+%Set the figure position information.
+left = 750;
+bottom = 25;
+width = 1220;
+height = 560;
+
+rect = [0, 0, width, height];
+
+fig2 = figure();
+fig2.Position = [left bottom width height];
+fig2.ToolBar = 'none';
+set(gcf, 'renderer', 'zbuffer');
+
+%Let's set the colormap.
+cmap = colormap(jet);
+
+movieStartTime = info.movieStartTime;
+
+
+xEdges = 1 : info.numXPixels + 1;
+yEdges = 1 : info.numYPixels + 1;
+
+xPixelVector = 1 : info.numXPixels;
+yPixelVector = 1 : info.numYPixels;
+
+deltaT = info.movieFrameLength;
+
+%We want to work in seconds.
+movieEndTime = info.movieEndTime;
+
+%Generate a movie file name.
+if strcmp(eventType, 'Positive')
+    outputMovieName = [info.outputMovieDir, 'Pos_', ...
+        info.dateTimeStr, '_', num2str(info.movieStartTime, '%03d'), ...
+        '-', num2str(movieEndTime, '%03d'), '.avi'];
+    dataFileName = [info.outputPositiveEventsDir, ...
+        'PosEvents', '_', info.dateTimeStr, '_', ...
+        num2str(info.movieStartTime, '%03d'), ...
+        '-', num2str(movieEndTime, '%03d'), '.h5'];
+end
+
+if strcmp(eventType, 'Negative')
+    outputMovieName = [info.outputMovieDir, 'Neg_', ...
+        info.dateTimeStr, '_', num2str(info.movieStartTime, '%03d'), ...
+        '-', num2str(movieEndTime, '%03d'), '.avi'];
+    dataFileName = [info.outputNegativeEventsDir, ...
+        'NegEvents', '_', info.dateTimeStr, '_', ...
+        num2str(info.movieStartTime, '%03d'), ...
+        '-', num2str(movieEndTime, '%03d'), '.h5'];
+end
+
+if strcmp(eventType, 'PosNeg')
+    outputMovieName = [info.outputMovieDir, 'PosNeg_', ...
+        info.dateTimeStr, '_', num2str(info.movieStartTime, '%03d'), ...
+        '-', num2str(movieEndTime, '%03d'), '.avi'];
+    dataFileName = [info.outputNegativeEventsDir, ...
+        'PosNegEvents', '_', info.dateTimeStr, '_', ...
+        num2str(info.movieStartTime, '%03d'), ...
+        '-', num2str(movieEndTime, '%03d'), '.h5'];
+end
+
+%Check the movie frame rate.
+if (1/deltaT) > 30
+    % if it's a small bin size we want a decently fast frame rate to
+    % see it.
+    outputFrameRate = 10;
+else
+    % if it's a large bin size we want to slow down the movie.
+    outputFrameRate = ceil(1/deltaT);
+end
+
+%Generate the bin edges.  We append one last edge onto the array.
+%Generate a vector of times in fractional seconds.
+time = events(:, 4);
+
+timeIndex = find(time > info.movieStartTime & time <= movieEndTime);
+
+timeInSeconds = events(timeIndex, 4); 
+bins = info.movieStartTime : deltaT : max(timeInSeconds);
+bins = [bins (max(bins) + deltaT)];
+numberOfFrames = length(bins);
+
+%Now lets just keep the first hundred frames.
+if numberOfFrames > 100
+    bins = bins(1 : 100);
+    numberOfFrames = length(bins);
+end
+
+% Now combine these to make the array for saving the cdata from the
+% getframes function call.  This will be used to feed into the CNN.
+movieFrames = zeros(numberOfFrames, width, height, 3);
+
+v = VideoWriter(outputMovieName);
+v.FrameRate = outputFrameRate;
+open(v);
+
+%Loop through the number of time bins, make a frame from the data in each
+%bin and write those to movieFrames Structure.
+for frameCount = 1 : numberOfFrames
+
+    disp(['Frame ', num2str(frameCount), ' Out of ', num2str(length(bins))])
+
+    %Find the indices of the events for the time frame being
+    %analyzed.
+    % time = events(:, 4);
+    frameEventIndex = find((time >= bins(frameCount)) & ...
+        (time < bins(frameCount) + deltaT));
+
+    %Now create an array of those events.
+    frameEvents = events(frameEventIndex, :);
+
+    %Find the positive and negative event indices.
+    if strcmp(eventType, 'Positive')
+        eventIndex = find(frameEvents(:, 3) == 1);
+        figFrameName = [info.positiveFramePlotsDir, 'PF_', ...
+            info.dateTimeStr, '_', ...
+            num2str(info.movieStartTime, '%03d'), '-', ...
+            num2str(movieEndTime, '%03d'), '_', ...
+            num2str(frameCount, '%05d'), '.png'];
+
+    end
+
+    if strcmp(eventType, 'Negative')
+        eventIndex = find(frameEvents(:, 3) == -1);
+        figFrameName = [info.negativeFramePlotsDir, 'NF_', ...
+            info.dateTimeStr, '_', ...
+            num2str(info.movieStartTime, '%03d'), '-', ...
+            num2str(movieEndTime, '%03d'), '_', ...
+            num2str(frameCount, '%05d'), '.png'];
+    end
+
+    if strcmp(eventType, 'PosNeg')
+        eventIndex = find(frameEvents(:, 3) == 1 | frameEvents(:, 3) == -1);
+        figFrameName = [info.posNegFramePlotsDir, 'PNF_', ...
+            info.dateTimeStr, '_', ...
+            num2str(info.movieStartTime, '%03d'), '-', ...
+            num2str(movieEndTime, '%03d'), '_', ...
+            num2str(frameCount, '%05d'), '.png'];
+    end
+
+    histogramValues = getHistogramValues(frameEvents, ...
+        eventIndex, xEdges, yEdges);
+    imagesc(xPixelVector, yPixelVector, histogramValues');
+%    imagesc(xPixelVector, yPixelVector, ...
+%        histogramValues', info.positiveCLims);
+    set(gca,'XColor', 'none','YColor','none')
+
+    %Draw the figure to the screen.
+    drawnow();
+
+    %Now fill in the movieFrames structure.
+    frame = getframe(fig2, rect);
+
+    % Print the image to a .png file
+    if info.printFrames
+        print('-dpng', figFrameName);
+    end
+    
+    writeVideo(v, frame);
+    
+end % End of for statement - for frameCount = 1 : length(bins) - 1
+
+%Close the video object.
+close(v);
+
+%Write the frame data to a file.
+if info.writeH5
+    h5create(dataFileName, '/Framedata', size(frame.cdata));
+    h5write(dataFileName, '/Framedata', frame.cdata);
+end
+
+end  %End of the function makeMovie.m

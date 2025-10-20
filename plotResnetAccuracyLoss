@@ -1,0 +1,8 @@
+%This script will plot the accuracy and loss relationship for the resnet
+%model.
+
+close all;
+clearvars;
+%clf;
+
+dbstop if error; 

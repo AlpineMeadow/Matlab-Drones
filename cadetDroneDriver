@@ -1,0 +1,8 @@
+%This script will run through the data partitions needed to run some of the
+%files for cadetDrone.m
+
+numFiles = 8;
+
+for files = 0 : numFiles - 1
+    cadetDrone1(files);
+end
